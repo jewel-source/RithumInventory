@@ -1,0 +1,86 @@
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 700;
+  background: linear-gradient(100deg, #1a1a2e, #0f3460 40%, #533483 70%, #e94560);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.subtitle {
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.cards {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  padding: 24px 20px;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(15, 52, 96, 0.06);
+  text-align: left;
+  overflow: hidden;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #0f3460, #533483, #e94560);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(15, 52, 96, 0.18);
+}
+
+.cardIcon {
+  font-size: 22px;
+}
+
+.cardTitle {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cardDesc {
+  font-size: 13px;
+  opacity: 0.65;
+}

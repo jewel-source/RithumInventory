@@ -1,21 +1,25 @@
 import Link from 'next/link'
+import styles from './page.module.css'
 
 export default function Home() {
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '16px',
-      }}
-    >
-      <h1>Rithum Inventory</h1>
-      <div style={{ display: 'flex', gap: '16px' }}>
-        <Link href="/search">Product Search</Link>
-        <Link href="/export">Inventory Export</Link>
+    <main className={styles.main}>
+      <div className={styles.heading}>
+        <h1 className={styles.title}>Rithum Inventory</h1>
+        <p className={styles.subtitle}>Product search &amp; inventory export, straight from Rithum</p>
+      </div>
+
+      <div className={styles.cards}>
+        <Link href="/search" className={styles.card}>
+          <span className={styles.cardIcon}>🔍</span>
+          <span className={styles.cardTitle}>Product Search</span>
+          <span className={styles.cardDesc}>Look up SKU, UPC, or Vendor SKU with images and sales data</span>
+        </Link>
+        <Link href="/export" className={styles.card}>
+          <span className={styles.cardIcon}>📦</span>
+          <span className={styles.cardTitle}>Inventory Export</span>
+          <span className={styles.cardDesc}>Export current inventory for Kohl&apos;s or Macy&apos;s</span>
+        </Link>
       </div>
     </main>
   )

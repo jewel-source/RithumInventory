@@ -1,0 +1,17 @@
+.panel {
+  max-width: 900px;
+  margin: 32px auto;
+  padding: 32px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 52, 96, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(15, 52, 96, 0.06);
+}
+
+.title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: #1a1a2e;
+}

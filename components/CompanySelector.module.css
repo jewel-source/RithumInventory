@@ -14,13 +14,18 @@
 }
 
 .option {
-  border: 1px solid #ccc;
-  background: #fff;
+  border: 1px solid rgba(15, 52, 96, 0.15);
+  background: #f4f5f9;
   color: #333;
 }
 
+.option:hover {
+  background: #eceef4;
+}
+
 .selected {
-  border: 1px solid #1a1a2e;
-  background: #1a1a2e;
+  border: 1px solid transparent;
+  background: linear-gradient(115deg, #1a1a2e, #0f3460 60%, #533483);
   color: #fff;
+  box-shadow: 0 2px 8px rgba(15, 52, 96, 0.3);
 }
