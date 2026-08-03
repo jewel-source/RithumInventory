@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { rithumFetchJson, getProfileId } from '@/lib/rithum'
+import { COMPANY_LABELS, isCompanyKey } from '@/lib/companies'
 
 // Custom Attribute name this catalog uses for a vendor's own style/item number.
 const VENDOR_SKU_ATTRIBUTE_NAME = 'Vendor SKU'
@@ -65,7 +66,7 @@ function matchesTerm(product: RithumProduct, term: string): boolean {
   )
 }
 
-export async function GET(_req: Request, { params }: { params: Promise<{ query: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ query: string }> }) {
   const { query } = await params
   const raw = decodeURIComponent(query)
 
@@ -75,6 +76,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ query: 
   if (terms.length === 0) {
     return NextResponse.json({ error: 'A SKU, UPC, or Vendor SKU is required' }, { status: 400 })
   }
+
+  const company = req.nextUrl.searchParams.get('company')
+  if (!company || !isCompanyKey(company)) {
+    return NextResponse.json({ error: 'A company (kohls or macys) is required' }, { status: 400 })
+  }
+  const companyLabel = COMPANY_LABELS[company]
 
   const escapedAttrName = escapeODataString(VENDOR_SKU_ATTRIBUTE_NAME)
 
@@ -90,7 +97,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ query: 
     )
   })
 
-  let filterExpr = `(${perTermClauses.join(' or ')})`
+  const escapedLabel = escapeODataString(companyLabel)
+  let filterExpr =
+    `(${perTermClauses.join(' or ')}) and Labels/any(l: l/Name eq '${escapedLabel}')`
 
   const profileId = getProfileId()
   if (profileId) {

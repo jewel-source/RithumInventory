@@ -2,6 +2,8 @@
 
 import { useState, FormEvent } from 'react'
 import styles from './ProductSearch.module.css'
+import CompanySelector from './CompanySelector'
+import { CompanyKey } from '@/lib/companies'
 
 interface RithumImage {
   PlacementName: string
@@ -89,6 +91,7 @@ function ProductCard({ product }: { product: RithumProduct }) {
 }
 
 export default function ProductSearch() {
+  const [company, setCompany] = useState<CompanyKey | null>(null)
   const [query, setQuery] = useState('')
   const [products, setProducts] = useState<RithumProduct[]>([])
   const [notFound, setNotFound] = useState<string[]>([])
@@ -100,13 +103,20 @@ export default function ProductSearch() {
     const trimmed = query.trim()
     if (!trimmed) return
 
+    if (!company) {
+      setError("Select Kohl's or Macy's first")
+      return
+    }
+
     setLoading(true)
     setError(null)
     setProducts([])
     setNotFound([])
 
     try {
-      const res = await fetch(`/api/products/${encodeURIComponent(trimmed)}`)
+      const res = await fetch(
+        `/api/products/${encodeURIComponent(trimmed)}?company=${company}`
+      )
       const data = await res.json()
 
       if (!res.ok) {
@@ -126,15 +136,18 @@ export default function ProductSearch() {
 
   return (
     <div className={styles.wrapper}>
+      <CompanySelector value={company} onChange={setCompany} />
+
       <form onSubmit={handleSubmit} className={styles.form}>
         <input
           className={styles.input}
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder="Enter SKU, UPC, or Vendor SKU — separate multiple with commas..."
+          disabled={!company}
           autoFocus
         />
-        <button className={styles.button} type="submit" disabled={loading}>
+        <button className={styles.button} type="submit" disabled={loading || !company}>
           {loading ? 'Searching…' : 'Search'}
         </button>
       </form>

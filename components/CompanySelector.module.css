@@ -1,0 +1,26 @@
+.wrapper {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.option,
+.selected {
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.option {
+  border: 1px solid #ccc;
+  background: #fff;
+  color: #333;
+}
+
+.selected {
+  border: 1px solid #1a1a2e;
+  background: #1a1a2e;
+  color: #fff;
+}

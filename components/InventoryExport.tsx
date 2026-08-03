@@ -1,69 +1,47 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import styles from './InventoryExport.module.css'
+import CompanySelector from './CompanySelector'
+import { CompanyKey } from '@/lib/companies'
 
 type Row = Record<string, string>
 
-type Phase = 'idle' | 'starting' | 'polling' | 'ready' | 'error'
-
-const POLL_INTERVAL_MS = 3000
+type Phase = 'idle' | 'running' | 'ready' | 'error'
 
 export default function InventoryExport() {
+  const [company, setCompany] = useState<CompanyKey | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [statusMessage, setStatusMessage] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [error, setError] = useState<string | null>(null)
-  const cancelledRef = useRef(false)
-
-  // Stop polling if the component unmounts mid-export.
-  useEffect(() => {
-    return () => {
-      cancelledRef.current = true
-    }
-  }, [])
 
   async function runExport() {
-    cancelledRef.current = false
-    setPhase('starting')
+    if (!company) {
+      setError("Select Kohl's or Macy's first")
+      setPhase('error')
+      return
+    }
+
+    setPhase('running')
     setError(null)
     setRows([])
-    setStatusMessage('Starting export…')
+    setStatusMessage('Fetching products…')
 
     try {
-      const startRes = await fetch('/api/inventory-export', { method: 'POST' })
-      const startData = await startRes.json()
-
-      if (!startRes.ok) {
-        throw new Error(startData.error || 'Failed to start export')
-      }
-
-      setPhase('polling')
-      await poll(startData.token)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start export')
-      setPhase('error')
-    }
-  }
-
-  async function poll(token: string) {
-    while (!cancelledRef.current) {
-      const res = await fetch(`/api/inventory-export?token=${encodeURIComponent(token)}`)
+      const res = await fetch(`/api/inventory-export?company=${company}`)
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || 'Export status check failed')
+        throw new Error(data.error || 'Failed to run export')
       }
 
-      if (data.ready) {
-        setRows(data.rows)
-        setStatusMessage(`Export complete — ${data.rows.length} rows`)
-        setPhase('ready')
-        return
-      }
-
-      setStatusMessage(`Export status: ${data.status || 'Processing'}…`)
-      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+      setRows(data.rows)
+      setStatusMessage(`Export complete — ${data.rows.length} rows`)
+      setPhase('ready')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to run export')
+      setPhase('error')
     }
   }
 
@@ -83,18 +61,20 @@ export default function InventoryExport() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `inventory-export-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `${company}-inventory-export-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const isRunning = phase === 'starting' || phase === 'polling'
+  const isRunning = phase === 'running'
   const headers = rows.length > 0 ? Object.keys(rows[0]) : []
 
   return (
     <div className={styles.wrapper}>
+      <CompanySelector value={company} onChange={setCompany} />
+
       <div className={styles.actions}>
-        <button className={styles.button} onClick={runExport} disabled={isRunning}>
+        <button className={styles.button} onClick={runExport} disabled={isRunning || !company}>
           {isRunning ? 'Running…' : 'Run Export'}
         </button>
         {phase === 'ready' && (
@@ -104,8 +84,7 @@ export default function InventoryExport() {
         )}
       </div>
 
-      {statusMessage && phase !== 'ready' && <p className={styles.status}>{statusMessage}</p>}
-      {phase === 'ready' && <p className={styles.status}>{statusMessage}</p>}
+      {statusMessage && <p className={styles.status}>{statusMessage}</p>}
       {error && <p className={styles.error}>{error}</p>}
 
       {rows.length > 0 && (
