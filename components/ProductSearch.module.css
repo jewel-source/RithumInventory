@@ -68,9 +68,6 @@
 }
 
 .images {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   min-width: 140px;
 }
 
@@ -80,6 +77,203 @@
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid #e0e0e0;
+}
+
+.carousel {
+  position: relative;
+  width: 140px;
+  height: 140px;
+}
+
+.carousel .image {
+  cursor: pointer;
+}
+
+.carouselArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: black;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.carouselArrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.carouselPrev {
+  left: 4px;
+}
+
+.carouselNext {
+  right: 4px;
+}
+
+.carouselCounter {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  z-index: 1000;
+}
+
+.lightboxBg {
+  position: fixed;
+  inset: -20%;
+  background-size: cover;
+  background-position: center center;
+  filter: blur(24px) brightness(0.45);
+  transform: scale(1.1);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.lightboxContent {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sliderBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 8px;
+  border: none;
+  background: none;
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity 250ms cubic-bezier(0.215, 0.61, 0.355, 1);
+  z-index: 999;
+}
+
+.sliderBtn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.sliderBtn:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+
+.sliderBtn svg {
+  width: 32px;
+  height: 32px;
+  stroke: #fff;
+}
+
+.slidesStage {
+  --slide-width: min(24vw, 300px);
+  width: calc(3 * var(--slide-width));
+  height: min(70vh, calc(var(--slide-width) * 4 / 3));
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.slide {
+  grid-area: 1 / -1;
+  position: relative;
+  width: var(--slide-width);
+  aspect-ratio: 3 / 4;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #111;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  transition: transform 700ms ease, opacity 700ms ease;
+}
+
+.slideImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: brightness(0.55);
+  transition: filter 700ms ease;
+}
+
+.slideImageCurrent {
+  filter: brightness(1);
+}
+
+.slideCaption {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  color: black;
+  font-weight: 400;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 400ms ease 150ms, transform 400ms ease 150ms;
+  pointer-events: none;
+}
+
+.slideCaptionVisible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.lightboxClose {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 1001;
+}
+
+.lightboxCounter {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 13px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 10px;
+  border-radius: 10px;
+  z-index: 1001;
 }
 
 .noImage {
@@ -92,6 +286,22 @@
   border: 1px dashed #ccc;
   color: #999;
   font-size: 13px;
+}
+
+.skeleton {
+  border: 1px solid #e0e0e0;
+  background: linear-gradient(90deg, #f0f0f0 25%, #f8f8f8 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skeletonPulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .details {

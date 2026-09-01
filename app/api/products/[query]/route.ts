@@ -55,13 +55,17 @@ function escapeODataString(value: string): string {
   return value.replace(/'/g, "''")
 }
 
+// SKU matching is prefix-based (not exact) so a bare style code like
+// "AAR200A0303" pulls in every sized/plated variant of it, e.g.
+// "AAR200A0303SZ9" (white rhodium) and "AAR200A0303YPSZ9" (yellow plated).
+// UPC has no such variant grouping, so it stays an exact match.
 function matchesTerm(product: RithumProduct, term: string): boolean {
   const lower = term.toLowerCase()
-  if (product.Sku?.toLowerCase() === lower) return true
+  if (product.Sku?.toLowerCase().startsWith(lower)) return true
   if (product.UPC?.toLowerCase() === lower) return true
   return (
     product.Attributes?.some(
-      a => a.Name === VENDOR_SKU_ATTRIBUTE_NAME && a.Value?.toLowerCase() === lower
+      a => a.Name === VENDOR_SKU_ATTRIBUTE_NAME && a.Value?.toLowerCase().startsWith(lower)
     ) ?? false
   )
 }
@@ -92,8 +96,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ quer
   const perTermClauses = terms.map(term => {
     const escaped = escapeODataString(term)
     return (
-      `Sku eq '${escaped}' or UPC eq '${escaped}' or ` +
-      `Attributes/any(a: a/Name eq '${escapedAttrName}' and a/Value eq '${escaped}')`
+      `startswith(Sku, '${escaped}') or UPC eq '${escaped}' or ` +
+      `Attributes/any(a: a/Name eq '${escapedAttrName}' and startswith(a/Value, '${escaped}'))`
     )
   })
 
