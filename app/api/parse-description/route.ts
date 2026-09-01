@@ -1,0 +1,119 @@
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  FILTER_FIELDS,
+  FilterField,
+  SIZE_MENTION_PATTERN,
+  extractCtw,
+  extractCategory,
+  extractStyleCode,
+  extractRhodiumYp,
+  categoryFromStylePrefix,
+  toNullableString,
+  pruneUnmentionedFields,
+  callQwenExtraction,
+  DEFAULT_QWEN_MODEL,
+} from '@/lib/jewelryAttributes'
+
+type ParsedAttributeFilters = Record<FilterField, string | null>
+
+const SYSTEM_PROMPT = `You extract jewelry attributes from a product description.
+Reply with ONLY a single JSON object, no markdown fences, no explanation, matching exactly this shape:
+{
+  "category": string|null, "color": string|null, "colorName": string|null,
+  "gemType": string|null, "metalType": string|null, "patternName": string|null,
+  "ringSize": string|null, "sizeName": string|null
+}
+Do not include "style", "ctw", or "rhodiumYp" fields — all three are extracted separately, not by you.
+"metalType" is the base metal (e.g. "STERLING SILVER", "GOLD") — plating (rhodium/yellow/gold-plated) is never a metalType value.
+
+Rules:
+- "category" is a product type like RING, EARRING, NECKLACE, BRACELET, PENDANT. null if not mentioned.
+- "color", "colorName", "gemType", "metalType", "patternName", "sizeName" are jewelry attributes — fill in only if clearly mentioned, else null.
+- "ringSize" is the numeric ring size (e.g. "6"). null if not mentioned.`
+
+function validate(parsed: unknown, description: string): ParsedAttributeFilters {
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error('Model output was not a JSON object')
+  }
+  const obj = parsed as Record<string, unknown>
+
+  const filters = Object.fromEntries(
+    FILTER_FIELDS.map(field => [field, toNullableString(obj[field])])
+  ) as ParsedAttributeFilters
+
+  filters.rhodiumYp = extractRhodiumYp(description)
+  pruneUnmentionedFields(filters, description)
+
+  filters.style = extractStyleCode(description)
+  filters.ctw = extractCtw(description)
+
+  const categoryFromDescription = extractCategory(description)
+  if (categoryFromDescription) {
+    filters.category = categoryFromDescription
+  } else if (
+    filters.category &&
+    !description.toLowerCase().includes(filters.category.toLowerCase())
+  ) {
+    filters.category = null
+  }
+  const isRing = filters.category === 'RING' || categoryFromStylePrefix(filters.style) === 'RING'
+
+  const sizeMatch = description.match(SIZE_MENTION_PATTERN)
+  if (sizeMatch) {
+    if (isRing) {
+      filters.ringSize = sizeMatch[1]
+      filters.sizeName = null
+    } else {
+      filters.sizeName = sizeMatch[1]
+      filters.ringSize = null
+    }
+  } else {
+    filters.ringSize = null
+    filters.sizeName = null
+  }
+
+  // Unlike parse-question, an all-null result isn't an error here: the
+  // by-description search still falls back to matching Title keywords, so a
+  // vague description with no recognizable attributes can still find candidates.
+  return filters
+}
+
+export async function POST(req: NextRequest) {
+  const token = process.env.HF_API_TOKEN
+  if (!token) {
+    return NextResponse.json(
+      { error: 'HF_API_TOKEN is not configured on the server' },
+      { status: 500 }
+    )
+  }
+
+  let description: string
+  try {
+    const body = await req.json()
+    description = typeof body?.description === 'string' ? body.description.trim() : ''
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
+  if (!description) {
+    return NextResponse.json({ error: 'A description is required' }, { status: 400 })
+  }
+
+  const model = process.env.HF_MODEL || DEFAULT_QWEN_MODEL
+
+  try {
+    const result = await callQwenExtraction(SYSTEM_PROMPT, description, token, model)
+    if (!result.ok) {
+      return NextResponse.json({ error: result.message }, { status: result.status })
+    }
+
+    const filters = validate(result.json, description)
+    return NextResponse.json(filters)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Unknown error'
+    return NextResponse.json(
+      { error: `Could not understand that description: ${message}` },
+      { status: 422 }
+    )
+  }
+}

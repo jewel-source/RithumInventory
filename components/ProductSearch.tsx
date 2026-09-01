@@ -100,6 +100,8 @@ type ParsedFilters = {
   allTimeCaveat?: true
 } & Record<FilterField, string | null>
 
+type ParsedDescriptionFilters = Record<FilterField, string | null>
+
 interface AttributeSearchProduct {
   Sku: string | null
   value: number
@@ -144,7 +146,12 @@ function ImageCarousel({
   onOpen: (index: number) => void
 }) {
   const [index, setIndex] = useState(0)
+  // Rithum sometimes has a real, syntactically valid URL that's simply a
+  // dead link (unlike the literal-placeholder-string case caught up front) —
+  // only the browser actually trying to load it reveals that.
+  const [brokenUrls, setBrokenUrls] = useState<Set<string>>(new Set())
   const current = images[index]
+  const isBroken = brokenUrls.has(current.thumbUrl)
 
   function step(e: React.MouseEvent, delta: number) {
     e.stopPropagation()
@@ -153,12 +160,19 @@ function ImageCarousel({
 
   return (
     <div className={styles.carousel}>
-      <img
-        src={current.thumbUrl}
-        alt={current.alt}
-        className={styles.image}
-        onClick={() => onOpen(index)}
-      />
+      {isBroken ? (
+        <div className={styles.noImage} onClick={() => onOpen(index)}>
+          Image unavailable
+        </div>
+      ) : (
+        <img
+          src={current.thumbUrl}
+          alt={current.alt}
+          className={styles.image}
+          onClick={() => onOpen(index)}
+          onError={() => setBrokenUrls(prev => new Set(prev).add(current.thumbUrl))}
+        />
+      )}
       {images.length > 1 && (
         <>
           <button
@@ -197,6 +211,7 @@ function ImageLightbox({
 }) {
   const [index, setIndex] = useState(initialIndex)
   const [loaded, setLoaded] = useState<Set<number>>(new Set())
+  const [broken, setBroken] = useState<Set<number>>(new Set())
 
   function goTo(nextIndex: number) {
     setIndex(Math.max(0, Math.min(images.length - 1, nextIndex)))
@@ -204,6 +219,11 @@ function ImageLightbox({
 
   function markLoaded(i: number) {
     setLoaded(prev => (prev.has(i) ? prev : new Set(prev).add(i)))
+  }
+
+  function markBroken(i: number) {
+    setLoaded(prev => (prev.has(i) ? prev : new Set(prev).add(i)))
+    setBroken(prev => (prev.has(i) ? prev : new Set(prev).add(i)))
   }
 
   useEffect(() => {
@@ -264,11 +284,17 @@ function ImageLightbox({
                 }}
               >
                 {!loaded.has(i) && <div className={`${styles.slideImage} ${styles.skeleton}`} />}
-                {abs <= 1 && (
+                {broken.has(i) && (
+                  <div className={`${styles.slideImage} ${styles.slideImageBroken}`}>
+                    Image unavailable
+                  </div>
+                )}
+                {abs <= 1 && !broken.has(i) && (
                   <img
                     src={img.fullUrl}
                     alt={img.alt}
                     onLoad={() => markLoaded(i)}
+                    onError={() => markBroken(i)}
                     className={`${styles.slideImage} ${isCurrent ? styles.slideImageCurrent : ''} ${
                       loaded.has(i) ? '' : styles.slideImageHidden
                     }`}
@@ -305,8 +331,19 @@ function ImageLightbox({
   )
 }
 
+// Rithum's Images entries sometimes carry a literal placeholder string
+// (e.g. "ITEMIMAGEURL1") instead of a real URL or null — reject anything
+// that doesn't actually look like one, so it falls through to the Immich
+// lookup instead of rendering a broken image.
+function isValidImageUrl(url: string | null | undefined): url is string {
+  return !!url && /^https?:\/\//i.test(url)
+}
+
 function ProductCard({ product }: { product: RithumProduct }) {
-  const hasRithumImages = (product.Images?.length ?? 0) > 0
+  const rithumImages = (product.Images ?? []).filter(
+    (img): img is RithumImage & { Url: string } => isValidImageUrl(img.Url)
+  )
+  const hasRithumImages = rithumImages.length > 0
   const imageStyleCode = getImageStyleCode(product)
   const shouldLookupImmich = !hasRithumImages && !!imageStyleCode
   const [immichState, setImmichState] = useState<'loading' | 'found' | 'not-found'>(
@@ -347,9 +384,7 @@ function ProductCard({ product }: { product: RithumProduct }) {
   }, [shouldLookupImmich, imageStyleCode])
 
   const images: GalleryImage[] = hasRithumImages
-    ? (product.Images ?? [])
-        .filter((img): img is RithumImage & { Url: string } => !!img.Url)
-        .map(img => ({ thumbUrl: img.Url, fullUrl: img.Url, alt: img.PlacementName }))
+    ? rithumImages.map(img => ({ thumbUrl: img.Url, fullUrl: img.Url, alt: img.PlacementName }))
     : immichImages
 
   return (
@@ -411,7 +446,10 @@ function ProductCard({ product }: { product: RithumProduct }) {
   )
 }
 
+type Tab = 'sku' | 'description' | 'question'
+
 export default function ProductSearch() {
+  const [activeTab, setActiveTab] = useState<Tab>('sku')
   const [company, setCompany] = useState<CompanyKey | null>(null)
   const [query, setQuery] = useState('')
   const [products, setProducts] = useState<RithumProduct[]>([])
@@ -424,6 +462,65 @@ export default function ProductSearch() {
   const [askError, setAskError] = useState<string | null>(null)
   const [parsedFilters, setParsedFilters] = useState<ParsedFilters | null>(null)
   const [askResult, setAskResult] = useState<AttributeSearchResult | null>(null)
+
+  const [description, setDescription] = useState('')
+  const [descLoading, setDescLoading] = useState(false)
+  const [descError, setDescError] = useState<string | null>(null)
+  const [descParsedFilters, setDescParsedFilters] = useState<ParsedDescriptionFilters | null>(null)
+  const [descProducts, setDescProducts] = useState<RithumProduct[]>([])
+
+  async function handleDescSubmit(e: FormEvent) {
+    e.preventDefault()
+    const trimmed = description.trim()
+    if (!trimmed) return
+
+    if (!company) {
+      setDescError("Select Kohl's or Macy's first")
+      return
+    }
+
+    setDescLoading(true)
+    setDescError(null)
+    setDescParsedFilters(null)
+    setDescProducts([])
+
+    try {
+      const parseRes = await fetch('/api/parse-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: trimmed }),
+      })
+      const parseData = await parseRes.json()
+
+      if (!parseRes.ok) {
+        setDescError(parseData.error || 'Could not understand that description')
+        return
+      }
+
+      const filters: ParsedDescriptionFilters = parseData
+      setDescParsedFilters(filters)
+
+      const searchParams = new URLSearchParams({ company, description: trimmed })
+      for (const field of FILTER_FIELDS) {
+        const value = filters[field]
+        if (value) searchParams.set(field, value)
+      }
+
+      const searchRes = await fetch(`/api/products/by-description?${searchParams.toString()}`)
+      const searchData = await searchRes.json()
+
+      if (!searchRes.ok) {
+        setDescError(searchData.error || 'No matching products found')
+        return
+      }
+
+      setDescProducts(searchData.products)
+    } catch {
+      setDescError('Failed to reach the server')
+    } finally {
+      setDescLoading(false)
+    }
+  }
 
   async function handleAskSubmit(e: FormEvent) {
     e.preventDefault()
@@ -523,128 +620,207 @@ export default function ProductSearch() {
     <div className={styles.wrapper}>
       <CompanySelector value={company} onChange={setCompany} />
 
-      <form onSubmit={handleSubmit} className={styles.form}>
-        <input
-          className={styles.input}
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Enter SKU, UPC, or Vendor SKU — separate multiple with commas..."
-          disabled={!company}
-          autoFocus
-        />
-        <button className={styles.button} type="submit" disabled={loading || !company}>
-          {loading ? 'Searching…' : 'Search'}
+      <div className={styles.tabs}>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === 'sku' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('sku')}
+        >
+          SKU Search
         </button>
-      </form>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === 'description' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('description')}
+        >
+          Search by Description
+        </button>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeTab === 'question' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('question')}
+        >
+          Ask a Question
+        </button>
+      </div>
 
-      {error && <p className={styles.error}>{error}</p>}
+      {activeTab === 'sku' && (
+        <div>
+          <form onSubmit={handleSubmit} className={styles.form}>
+            <input
+              className={styles.input}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Enter SKU, UPC, or Vendor SKU — separate multiple with commas..."
+              disabled={!company}
+              autoFocus
+            />
+            <button className={styles.button} type="submit" disabled={loading || !company}>
+              {loading ? 'Searching…' : 'Search'}
+            </button>
+          </form>
 
-      {notFound.length > 0 && (
-        <p className={styles.warning}>No match for: {notFound.join(', ')}</p>
-      )}
+          {error && <p className={styles.error}>{error}</p>}
 
-      {products.length > 0 && (
-        <div className={styles.results}>
-          {products.map(product => (
-            <ProductCard key={product.ID} product={product} />
-          ))}
+          {notFound.length > 0 && (
+            <p className={styles.warning}>No match for: {notFound.join(', ')}</p>
+          )}
+
+          {products.length > 0 && (
+            <div className={styles.results}>
+              {products.map(product => (
+                <ProductCard key={product.ID} product={product} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      <div className={styles.askSection}>
-        <h3 className={styles.askHeading}>Ask a question</h3>
-        <form onSubmit={handleAskSubmit} className={styles.form}>
-          <input
-            className={styles.input}
-            value={question}
-            onChange={e => setQuestion(e.target.value)}
-            placeholder="e.g. How many size 6 rings sold in the last 30 days for style AAR200A0827YP, 2.00 CTW?"
-            disabled={!company}
-          />
-          <button className={styles.button} type="submit" disabled={askLoading || !company}>
-            {askLoading ? 'Thinking…' : 'Ask'}
-          </button>
-        </form>
+      {activeTab === 'description' && (
+        <div>
+          <p className={styles.caveat}>
+            Best-effort — description search can surface mismatches or miss items, unlike an
+            exact SKU/UPC lookup.
+          </p>
+          <form onSubmit={handleDescSubmit} className={styles.form}>
+            <input
+              className={styles.input}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="e.g. 2 carat flower lab diamond ring in sterling silver"
+              disabled={!company}
+              autoFocus
+            />
+            <button className={styles.button} type="submit" disabled={descLoading || !company}>
+              {descLoading ? 'Searching…' : 'Search'}
+            </button>
+          </form>
 
-        {askError && <p className={styles.error}>{askError}</p>}
+          {descError && <p className={styles.error}>{descError}</p>}
 
-        {parsedFilters && (
-          <>
+          {descParsedFilters && (
             <p className={styles.parsedFilters}>
-              {parsedFilters.intent === 'topSelling' ? 'Ranking top sellers' : 'Understood'}
-              {FILTER_FIELDS.filter(f => parsedFilters[f]).map(f => (
-                <span key={f}>
-                  , {FILTER_FIELD_LABELS[f]} <strong>{parsedFilters[f]}</strong>
-                </span>
-              ))}
-              , {METRIC_LABELS[parsedFilters.metric] ?? parsedFilters.metric}
-              {parsedFilters.metric === 'sold' && (
-                <> ({WINDOW_LABELS[parsedFilters.window] ?? `${parsedFilters.window} days`})</>
+              {FILTER_FIELDS.some(f => descParsedFilters[f]) ? (
+                <>
+                  Understood
+                  {FILTER_FIELDS.filter(f => descParsedFilters[f]).map(f => (
+                    <span key={f}>
+                      , {FILTER_FIELD_LABELS[f]} <strong>{descParsedFilters[f]}</strong>
+                    </span>
+                  ))}
+                </>
+              ) : (
+                'No specific attributes recognized — matching by keyword only'
               )}
             </p>
-            {parsedFilters.allTimeCaveat && (
-              <p className={styles.caveat}>
-                Rithum doesn&apos;t provide a lifetime total — showing the last 90 days, the
-                longest window available.
+          )}
+
+          {descProducts.length > 0 && (
+            <div className={styles.results}>
+              {descProducts.map(product => (
+                <ProductCard key={product.ID} product={product} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'question' && (
+        <div>
+          <form onSubmit={handleAskSubmit} className={styles.form}>
+            <input
+              className={styles.input}
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              placeholder="e.g. How many size 6 rings sold in the last 30 days for style AAR200A0827YP, 2.00 CTW?"
+              disabled={!company}
+              autoFocus
+            />
+            <button className={styles.button} type="submit" disabled={askLoading || !company}>
+              {askLoading ? 'Thinking…' : 'Ask'}
+            </button>
+          </form>
+
+          {askError && <p className={styles.error}>{askError}</p>}
+
+          {parsedFilters && (
+            <>
+              <p className={styles.parsedFilters}>
+                {parsedFilters.intent === 'topSelling' ? 'Ranking top sellers' : 'Understood'}
+                {FILTER_FIELDS.filter(f => parsedFilters[f]).map(f => (
+                  <span key={f}>
+                    , {FILTER_FIELD_LABELS[f]} <strong>{parsedFilters[f]}</strong>
+                  </span>
+                ))}
+                , {METRIC_LABELS[parsedFilters.metric] ?? parsedFilters.metric}
+                {parsedFilters.metric === 'sold' && (
+                  <> ({WINDOW_LABELS[parsedFilters.window] ?? `${parsedFilters.window} days`})</>
+                )}
               </p>
-            )}
-          </>
-        )}
+              {parsedFilters.allTimeCaveat && (
+                <p className={styles.caveat}>
+                  Rithum doesn&apos;t provide a lifetime total — showing the last 90 days, the
+                  longest window available.
+                </p>
+              )}
+            </>
+          )}
 
-        {askResult && askResult.intent === 'total' && (
-          <div className={styles.askResult}>
-            <p className={styles.askTotal}>
-              <span className={styles.value}>{askResult.total}</span>{' '}
-              {METRIC_LABELS[askResult.metric] ?? askResult.metric}
-              {askResult.window && (
-                <> ({WINDOW_LABELS[askResult.window] ?? `${askResult.window} days`})</>
-              )}{' '}
-              across {askResult.matchCount} matching SKU{askResult.matchCount === 1 ? '' : 's'}
-            </p>
-            <table className={styles.soldTable}>
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>{METRIC_LABELS[askResult.metric] ?? askResult.metric}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {askResult.products.map(p => (
-                  <tr key={p.Sku}>
-                    <td>{p.Sku ?? '—'}</td>
-                    <td>{p.value}</td>
+          {askResult && askResult.intent === 'total' && (
+            <div className={styles.askResult}>
+              <p className={styles.askTotal}>
+                <span className={styles.value}>{askResult.total}</span>{' '}
+                {METRIC_LABELS[askResult.metric] ?? askResult.metric}
+                {askResult.window && (
+                  <> ({WINDOW_LABELS[askResult.window] ?? `${askResult.window} days`})</>
+                )}{' '}
+                across {askResult.matchCount} matching SKU{askResult.matchCount === 1 ? '' : 's'}
+              </p>
+              <table className={styles.soldTable}>
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>{METRIC_LABELS[askResult.metric] ?? askResult.metric}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {askResult.products.map(p => (
+                    <tr key={p.Sku}>
+                      <td>{p.Sku ?? '—'}</td>
+                      <td>{p.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-        {askResult && askResult.intent === 'topSelling' && (
-          <div className={styles.askResult}>
-            <table className={styles.soldTable}>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Style</th>
-                  <th>{METRIC_LABELS[askResult.metric] ?? askResult.metric}</th>
-                  <th>SKUs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {askResult.rankings.map((r, i) => (
-                  <tr key={r.style} className={i === 0 ? styles.topRank : undefined}>
-                    <td>{i + 1}</td>
-                    <td>{r.style}</td>
-                    <td>{r.total}</td>
-                    <td>{r.skuCount}</td>
+          {askResult && askResult.intent === 'topSelling' && (
+            <div className={styles.askResult}>
+              <table className={styles.soldTable}>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Style</th>
+                    <th>{METRIC_LABELS[askResult.metric] ?? askResult.metric}</th>
+                    <th>SKUs</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {askResult.rankings.map((r, i) => (
+                    <tr key={r.style} className={i === 0 ? styles.topRank : undefined}>
+                      <td>{i + 1}</td>
+                      <td>{r.style}</td>
+                      <td>{r.total}</td>
+                      <td>{r.skuCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -231,6 +231,17 @@
   opacity: 0;
 }
 
+.slideImageBroken {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+  color: #888;
+  font-size: 13px;
+  text-align: center;
+  padding: 12px;
+}
+
 .slideCaption {
   position: absolute;
   left: 12px;
@@ -292,6 +303,12 @@
   border: 1px dashed #ccc;
   color: #999;
   font-size: 13px;
+  text-align: center;
+  padding: 8px;
+}
+
+.carousel .noImage {
+  cursor: pointer;
 }
 
 .skeleton {
@@ -362,15 +379,32 @@
   font-weight: 500;
 }
 
-.askSection {
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid #e0e0e0;
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e0e0e0;
 }
 
-.askHeading {
-  margin: 0 0 12px;
-  font-size: 16px;
+.tab {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #888;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab:hover {
+  color: #1a1a2e;
+}
+
+.tabActive {
+  color: #1a1a2e;
+  border-bottom-color: #1a1a2e;
 }
 
 .parsedFilters {

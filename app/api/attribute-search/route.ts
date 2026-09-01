@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rithumFetchJson, getProfileId } from '@/lib/rithum'
 import { COMPANY_LABELS, isCompanyKey } from '@/lib/companies'
+import {
+  ATTRIBUTE_NAME_BY_PARAM,
+  FILTER_FIELDS,
+  attributeClause,
+  escapeODataString,
+} from '@/lib/jewelryAttributes'
 
-// Custom Attribute names this catalog uses, keyed by the query param we accept.
-const ATTRIBUTE_NAME_BY_PARAM = {
-  style: 'Image reference style #',
-  category: 'CATEGORY',
-  color: 'COLOR',
-  colorName: 'COLOR_NAME',
-  ctw: 'CTW',
-  gemType: 'GEM_TYPE',
-  metalType: 'METAL_TYPE',
-  patternName: 'PATTERN_NAME',
-  rhodiumYp: 'RHODIUM/YP',
-  ringSize: 'RING_SIZE',
-  sizeName: 'SIZE_NAME',
-} as const
-
-type FilterParam = keyof typeof ATTRIBUTE_NAME_BY_PARAM
-const FILTER_PARAMS = Object.keys(ATTRIBUTE_NAME_BY_PARAM) as FilterParam[]
+const FILTER_PARAMS = FILTER_FIELDS
 
 const SOLD_WINDOWS = ['7', '14', '30', '60', '90'] as const
 type SoldWindow = (typeof SOLD_WINDOWS)[number]
@@ -83,16 +73,6 @@ interface RithumProduct {
 interface ProductsResponse {
   value: RithumProduct[]
   '@odata.nextLink'?: string
-}
-
-function escapeODataString(value: string): string {
-  return value.replace(/'/g, "''")
-}
-
-function attributeClause(name: string, value: string): string {
-  const escapedName = escapeODataString(name)
-  const escapedValue = escapeODataString(value)
-  return `Attributes/any(a: a/Name eq '${escapedName}' and a/Value eq '${escapedValue}')`
 }
 
 function metricField(metric: Metric, window: SoldWindow): keyof RithumProduct {
