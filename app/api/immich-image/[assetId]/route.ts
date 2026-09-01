@@ -6,7 +6,8 @@ export async function GET(
   { params }: { params: Promise<{ assetId: string }> }
 ) {
   const { assetId } = await params
-  const size = req.nextUrl.searchParams.get('size') === 'original' ? 'original' : 'thumbnail'
+  const sizeParam = req.nextUrl.searchParams.get('size')
+  const size = sizeParam === 'original' || sizeParam === 'preview' ? sizeParam : 'thumbnail'
 
   try {
     const res = await fetchImmichAsset(assetId, size)
@@ -18,7 +19,8 @@ export async function GET(
     return new NextResponse(res.body, {
       headers: {
         'Content-Type': res.headers.get('Content-Type') ?? 'image/jpeg',
-        'Cache-Control': 'private, max-age=300',
+        // Bytes for a given assetId + size never change, so cache generously.
+        'Cache-Control': 'private, max-age=86400, immutable',
       },
     })
   } catch (e) {

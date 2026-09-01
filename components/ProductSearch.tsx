@@ -196,9 +196,14 @@ function ImageLightbox({
   onClose: () => void
 }) {
   const [index, setIndex] = useState(initialIndex)
+  const [loaded, setLoaded] = useState<Set<number>>(new Set())
 
   function goTo(nextIndex: number) {
     setIndex(Math.max(0, Math.min(images.length - 1, nextIndex)))
+  }
+
+  function markLoaded(i: number) {
+    setLoaded(prev => (prev.has(i) ? prev : new Set(prev).add(i)))
   }
 
   useEffect(() => {
@@ -216,7 +221,7 @@ function ImageLightbox({
 
   return (
     <div className={styles.lightboxOverlay} onClick={onClose}>
-      <div className={styles.lightboxBg} style={{ backgroundImage: `url(${current.fullUrl})` }} />
+      <div className={styles.lightboxBg} style={{ backgroundImage: `url(${current.thumbUrl})` }} />
 
       <button className={styles.lightboxClose} onClick={onClose} aria-label="Close">
         ×
@@ -258,11 +263,17 @@ function ImageLightbox({
                   if (abs === 1) goTo(i)
                 }}
               >
-                <img
-                  src={img.fullUrl}
-                  alt={img.alt}
-                  className={`${styles.slideImage} ${isCurrent ? styles.slideImageCurrent : ''}`}
-                />
+                {!loaded.has(i) && <div className={`${styles.slideImage} ${styles.skeleton}`} />}
+                {abs <= 1 && (
+                  <img
+                    src={img.fullUrl}
+                    alt={img.alt}
+                    onLoad={() => markLoaded(i)}
+                    className={`${styles.slideImage} ${isCurrent ? styles.slideImageCurrent : ''} ${
+                      loaded.has(i) ? '' : styles.slideImageHidden
+                    }`}
+                  />
+                )}
                 <div className={`${styles.slideCaption} ${isCurrent ? styles.slideCaptionVisible : ''}`}>
                   {img.alt}
                 </div>
@@ -317,7 +328,7 @@ function ProductCard({ product }: { product: RithumProduct }) {
           setImmichImages(
             data.images.map(img => ({
               thumbUrl: img.thumbnailUrl,
-              fullUrl: `${img.thumbnailUrl}?size=original`,
+              fullUrl: `${img.thumbnailUrl}?size=preview`,
               alt: imageStyleCode!,
             }))
           )

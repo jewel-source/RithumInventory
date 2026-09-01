@@ -128,8 +128,10 @@ export async function findProductImages(sku: string): Promise<ProductImageResult
  * own proxy route, so the Immich API key never reaches the browser. */
 export async function fetchImmichAsset(
   assetId: string,
-  size: 'thumbnail' | 'original'
+  size: 'thumbnail' | 'preview' | 'original'
 ): Promise<Response> {
-  const path = size === 'original' ? `/assets/${assetId}/original` : `/assets/${assetId}/thumbnail`
-  return immichFetch(path)
+  if (size === 'original') return immichFetch(`/assets/${assetId}/original`)
+  // 'preview' (1440px JPEG) is served off the same thumbnail endpoint as
+  // 'thumbnail' (250px WebP), just with a different Immich size param.
+  return immichFetch(`/assets/${assetId}/thumbnail?size=${size}`)
 }
