@@ -33,7 +33,7 @@ Rules:
 - "category" is a product type like RING, EARRING, NECKLACE, BRACELET, PENDANT. null if not mentioned.
 - "color", "colorName", "gemType", "metalType", "patternName", "sizeName" are jewelry attributes — fill in only if clearly mentioned, else null.
 - "ringSize" is the numeric ring size (e.g. "6"). null if not mentioned.
-- "keywords" is up to 4 words copied verbatim from the description that would help find this item by matching a product title (e.g. distinctive style/shape/design words like "flower", "vintage", "halo", "cluster"). Do not include words already covered by another field above (category nouns like "ring", carat/size numbers, plating words like "plated"/"gold"/"yellow"/"rhodium"). Every word must be an exact word from the description.`
+- "keywords" is up to 4 words copied verbatim from the description that would help find this item by matching a product title. Prefer the specific descriptor itself over the generic word introducing it — for "heart shape", the keyword is "heart", never "shape" (also true for "___ design"/"___ cut"/"___ style"): those generic words appear in nearly every title in a product family and match everything, defeating the purpose. DO include a word here even if it's also used for "gemType"/"metalType"/"patternName"/"color"/"colorName" above — repeat it, don't skip it, since that attribute may not exist on every matching product and the keyword is what catches those. Only exclude category nouns ("ring"), carat/size numbers, and plating words ("plated"/"gold"/"yellow"/"rhodium"). Every word must be an exact word from the description.`
 
 function validate(parsed: unknown, description: string): ParsedAttributeFilters {
   if (typeof parsed !== 'object' || parsed === null) {

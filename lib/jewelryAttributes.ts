@@ -188,11 +188,16 @@ export function pruneUnmentionedFields(
 
 // Generic filler words to never treat as a Title-matching keyword, whether
 // they come from the mechanical description split or from the model.
+// Includes jewelry-domain connector words that describe *how* a descriptor
+// is expressed rather than the descriptor itself (e.g. "heart shape") — a
+// real user report: searching "heart shape" picked "shape" as the keyword
+// instead of "heart", and since nearly every item in that product family is
+// some "___ Shape" earring, it matched everything regardless of shape.
 export const STOPWORDS = new Set([
   'the', 'a', 'an', 'in', 'on', 'of', 'for', 'with', 'and', 'or', 'to', 'is', 'are', 'this',
   'that', 'it', 'its', 'from', 'by', 'at', 'as', 'be', 'been', 'was', 'were', 'has', 'have',
   'had', 'will', 'would', 'can', 'could', 'our', 'your', 'their', 'his', 'her', 'new', 'item',
-  'product', 'style', 'sku',
+  'product', 'style', 'sku', 'shape', 'design', 'cut', 'type', 'look',
 ])
 
 // Kept small: Rithum's OData service rejects queries whose parsed node count
@@ -285,7 +290,11 @@ export async function callQwenExtraction(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userText },
       ],
-      max_tokens: 300,
+      // Reasoning models (e.g. gpt-oss via Groq) spend a chunk of this on a
+      // "reasoning" trace before ever writing the actual JSON content — 300
+      // was tuned for non-reasoning models and left them truncated with an
+      // empty response.
+      max_tokens: 700,
       temperature: 0.1,
     }),
     cache: 'no-store',

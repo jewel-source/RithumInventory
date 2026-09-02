@@ -345,12 +345,50 @@ function ProductCard({ product }: { product: RithumProduct }) {
   )
   const hasRithumImages = rithumImages.length > 0
   const imageStyleCode = getImageStyleCode(product)
-  const shouldLookupImmich = !hasRithumImages && !!imageStyleCode
-  const [immichState, setImmichState] = useState<'loading' | 'found' | 'not-found'>(
-    shouldLookupImmich ? 'loading' : 'not-found'
-  )
+
+  // A Rithum image entry can carry a syntactically valid URL that's simply
+  // dead (a real product hit this: a 404'ing wasabisys.com link) — a
+  // different case from the literal-placeholder-string one isValidImageUrl
+  // already rejects, and only the browser actually loading it reveals it.
+  // Probe every Rithum URL off-screen on mount so the Immich fallback
+  // triggers once they're all confirmed broken, not only when Rithum had
+  // no URL at all to begin with.
+  const [brokenRithumUrls, setBrokenRithumUrls] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!hasRithumImages) return
+    let cancelled = false
+    rithumImages.forEach(img => {
+      const probe = new window.Image()
+      probe.onerror = () => {
+        if (cancelled) return
+        setBrokenRithumUrls(prev => (prev.has(img.Url) ? prev : new Set(prev).add(img.Url)))
+      }
+      probe.src = img.Url
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRithumImages, imageStyleCode])
+
+  const allRithumImagesBroken =
+    hasRithumImages && rithumImages.every(img => brokenRithumUrls.has(img.Url))
+  const shouldLookupImmich = (!hasRithumImages || allRithumImagesBroken) && !!imageStyleCode
+
+  // null = not yet resolved (or no lookup needed yet) — kept separate from
+  // shouldLookupImmich itself so a lookup that only becomes eligible after
+  // the broken-image probe resolves (rather than at mount) still shows a
+  // loading state instead of a stale "not-found" while its fetch is in flight.
+  const [immichFound, setImmichFound] = useState<boolean | null>(null)
   const [immichImages, setImmichImages] = useState<GalleryImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const immichState: 'loading' | 'found' | 'not-found' = !shouldLookupImmich
+    ? 'not-found'
+    : immichFound === null
+      ? 'loading'
+      : immichFound
+        ? 'found'
+        : 'not-found'
 
   useEffect(() => {
     if (!shouldLookupImmich) return
@@ -369,13 +407,13 @@ function ProductCard({ product }: { product: RithumProduct }) {
               alt: imageStyleCode!,
             }))
           )
-          setImmichState('found')
+          setImmichFound(true)
         } else {
-          setImmichState('not-found')
+          setImmichFound(false)
         }
       })
       .catch(() => {
-        if (!cancelled) setImmichState('not-found')
+        if (!cancelled) setImmichFound(false)
       })
 
     return () => {
@@ -383,9 +421,12 @@ function ProductCard({ product }: { product: RithumProduct }) {
     }
   }, [shouldLookupImmich, imageStyleCode])
 
-  const images: GalleryImage[] = hasRithumImages
-    ? rithumImages.map(img => ({ thumbUrl: img.Url, fullUrl: img.Url, alt: img.PlacementName }))
-    : immichImages
+  const images: GalleryImage[] =
+    allRithumImagesBroken && immichState === 'found'
+      ? immichImages
+      : hasRithumImages
+        ? rithumImages.map(img => ({ thumbUrl: img.Url, fullUrl: img.Url, alt: img.PlacementName }))
+        : immichImages
 
   return (
     <div className={styles.card}>
