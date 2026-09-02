@@ -78,9 +78,6 @@ function validate(parsed: unknown, description: string): ParsedAttributeFilters 
     filters.sizeName = null
   }
 
-  // Unlike parse-question, an all-null result isn't an error here: the
-  // by-description search still falls back to matching Title keywords, so a
-  // vague description with no recognizable attributes can still find candidates.
   return filters
 }
 

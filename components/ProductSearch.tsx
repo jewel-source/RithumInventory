@@ -31,13 +31,6 @@ interface RithumProduct {
   Attributes?: RithumAttribute[]
 }
 
-// The Sku field is Rithum's own product identifier and isn't always the
-// vendor's style code — for some catalogs (e.g. Kohl's) it's a separate
-// numeric ID. The style code that matches Immich filenames usually lives in
-// these attributes instead — usually, because they can disagree with each
-// other (a real product had "Image reference style #" silently missing a
-// variant segment that "Vendor SKU" carried) — so return every candidate in
-// priority order and let the server try each one against Immich.
 function getImageStyleCodes(product: RithumProduct): string[] {
   const attrs = product.Attributes ?? []
   const styleAttr = attrs.find(a => a.Name === 'Image reference style #')?.Value
@@ -149,9 +142,6 @@ function ImageCarousel({
   onOpen: (index: number) => void
 }) {
   const [index, setIndex] = useState(0)
-  // Rithum sometimes has a real, syntactically valid URL that's simply a
-  // dead link (unlike the literal-placeholder-string case caught up front) —
-  // only the browser actually trying to load it reveals that.
   const [brokenUrls, setBrokenUrls] = useState<Set<string>>(new Set())
   const current = images[index]
   const isBroken = brokenUrls.has(current.thumbUrl)
@@ -334,10 +324,6 @@ function ImageLightbox({
   )
 }
 
-// Rithum's Images entries sometimes carry a literal placeholder string
-// (e.g. "ITEMIMAGEURL1") instead of a real URL or null — reject anything
-// that doesn't actually look like one, so it falls through to the Immich
-// lookup instead of rendering a broken image.
 function isValidImageUrl(url: string | null | undefined): url is string {
   return !!url && /^https?:\/\//i.test(url)
 }
@@ -350,13 +336,6 @@ function ProductCard({ product }: { product: RithumProduct }) {
   const imageStyleCodes = getImageStyleCodes(product)
   const imageStyleCodesKey = imageStyleCodes.join('|')
 
-  // A Rithum image entry can carry a syntactically valid URL that's simply
-  // dead (a real product hit this: a 404'ing wasabisys.com link) — a
-  // different case from the literal-placeholder-string one isValidImageUrl
-  // already rejects, and only the browser actually loading it reveals it.
-  // Probe every Rithum URL off-screen on mount so the Immich fallback
-  // triggers once they're all confirmed broken, not only when Rithum had
-  // no URL at all to begin with.
   const [brokenRithumUrls, setBrokenRithumUrls] = useState<Set<string>>(new Set())
   useEffect(() => {
     if (!hasRithumImages) return
@@ -379,10 +358,6 @@ function ProductCard({ product }: { product: RithumProduct }) {
     hasRithumImages && rithumImages.every(img => brokenRithumUrls.has(img.Url))
   const shouldLookupImmich = (!hasRithumImages || allRithumImagesBroken) && imageStyleCodes.length > 0
 
-  // null = not yet resolved (or no lookup needed yet) — kept separate from
-  // shouldLookupImmich itself so a lookup that only becomes eligible after
-  // the broken-image probe resolves (rather than at mount) still shows a
-  // loading state instead of a stale "not-found" while its fetch is in flight.
   const [immichFound, setImmichFound] = useState<boolean | null>(null)
   const [immichImages, setImmichImages] = useState<GalleryImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)

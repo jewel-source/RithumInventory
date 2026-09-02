@@ -42,8 +42,6 @@ interface ProductsResponse {
   value: RithumProduct[]
 }
 
-// Same field set the exact SKU/UPC search (`/api/products/[query]`) selects,
-// so results plug straight into the same ProductCard rendering.
 const SELECT_FIELDS = [
   'ID',
   'Sku',
@@ -62,16 +60,6 @@ const SELECT_FIELDS = [
 
 const MAX_RESULTS = 50
 
-// Mechanical fallback for when parse-description didn't return any usable
-// keywords (e.g. Qwen omitted the field, or every candidate got grounded
-// out) — a vague or partially-wrong description can still surface candidates
-// this way. Excludes words already owned by a precise attribute filter —
-// category nouns/CTW always (RESERVED_ATTRIBUTE_WORDS), plus, dynamically,
-// any token that's part of an active filter's *value* this search already
-// has (e.g. once rhodiumYp = "YELLOW PLATED" is a hard requirement, also
-// letting "plated" compete as a loose Title keyword would make virtually
-// every plated item satisfy the soft group on that word alone, silently
-// erasing the rest of the description).
 function significantWords(text: string, exclude: Set<string>): string[] {
   const words = text
     .toLowerCase()
@@ -96,15 +84,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'A description is required' }, { status: 400 })
   }
 
-  // Hard filters (style, category, CTW, ring/size, rhodium) are extracted
-  // deterministically or keyword-gated — high enough confidence to require
-  // outright (AND) rather than treat as just one option among many. Soft
-  // signals (model-guessed color/metal/gem/pattern, plus Title keywords) are
-  // lower confidence individually, so they're OR'd together into one group —
-  // but that group still has to match, it doesn't bypass the hard filters.
-  // Without this split, a single broad hard filter (e.g. category=RING) or
-  // one incidental keyword hit could satisfy the whole query on its own and
-  // swamp the results with everything else that happens to share it.
   const activeHardFields = HARD_FIELDS.filter(field => params.get(field)?.trim())
   const hardValues = activeHardFields.map(field => params.get(field)!.trim())
   const hardClauses = activeHardFields.map((field, i) =>
@@ -117,30 +96,14 @@ export async function GET(req: NextRequest) {
     attributeClause(ATTRIBUTE_NAME_BY_PARAM[field], softValues[i])
   )
 
-  // Only hard-filter values are excluded from the Title-keyword branch: a
-  // hard field is AND'd in and reliably present as a real attribute, so
-  // reusing its word as a keyword too would just make the soft OR-group
-  // trivially true for every hard-filtered item. Soft (model-sourced)
-  // values don't get this treatment — many catalog lines simply don't carry
-  // a GEM_TYPE/PATTERN_NAME/etc. attribute at all, so a soft attribute
-  // clause can go unmatched for every real product; excluding its word from
-  // the keyword fallback too would leave that signal with nowhere to match.
   const filterValueTokens = new Set(hardValues.flatMap(v => v.toLowerCase().split(/\s+/)))
 
-  // parse-description asks Qwen to pick the description's own salient words
-  // for Title matching — smarter than a blind stopword split, and already
-  // grounded against the source text there. Fall back to the mechanical
-  // split only if that came back empty (field omitted, or every candidate
-  // got grounded out).
   const qwenKeywords = (params.get('keywords') ?? '')
     .split(',')
     .map(w => w.trim().toLowerCase())
     .filter(w => w.length > 0 && !filterValueTokens.has(w))
     .slice(0, MAX_TITLE_KEYWORDS)
 
-  // The Rithum OData service rejects tolower(), so this relies on the
-  // backing store's default (case-insensitive) string collation rather than
-  // folding case in the query itself.
   const words = qwenKeywords.length > 0 ? qwenKeywords : significantWords(description, filterValueTokens)
   const titleClauses = words.map(w => `contains(Title, '${escapeODataString(w)}')`)
 
@@ -185,11 +148,6 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // When the user didn't specify a finish, also pull in each match's
-    // plating sibling (style code with/without a trailing "YP") even if its
-    // own catalog Title reads differently — same style family, so both
-    // finishes should surface together rather than only whichever one
-    // happens to share Title wording with the search.
     if (!params.get('rhodiumYp')?.trim()) {
       const styleAttrName = ATTRIBUTE_NAME_BY_PARAM.style
       const foundStyles = new Set(
@@ -215,7 +173,6 @@ export async function GET(req: NextRequest) {
           const existingIds = new Set(products.map(p => p.ID))
           products = [...products, ...companionData.value.filter(p => !existingIds.has(p.ID))]
         } catch {
-          // Best-effort: if the companion lookup fails, still return the original matches.
         }
       }
     }

@@ -55,21 +55,16 @@ function stripExtension(filename: string): string {
   return idx === -1 ? filename : filename.slice(0, idx)
 }
 
-// The library mixes two naming conventions: most SKUs use a numbered
-// sequence ("SKU_001 (AA).jpg", "SKU_002 (AA).jpg", ...), but some use a
-// bare primary shot plus lettered alternates ("SKU.jpeg", "SKU_ALT.jpeg",
-// "SKU_ALT1.jpeg"). A match is either the bare file or anything starting
-// with "SKU_".
-function isSkuMatch(originalFileName: string, sku: string): boolean {
-  const base = stripExtension(originalFileName)
-  return base === sku || base.startsWith(`${sku}_`)
+function normalizeCode(code: string): string {
+  return code.replace(/\s+/g, '')
 }
 
-// Ranks a match for "which one is primary": bare file first, then by
-// ascending numeric sequence, then alphabetically for non-numeric suffixes
-// (e.g. "_ALT" before "_ALT1") as a deterministic last resort.
+function isSkuMatch(originalFileName: string, sku: string): boolean {
+  const base = normalizeCode(stripExtension(originalFileName))
+  return base === sku || base.startsWith(`${sku}_`)
+}
 function rankKey(originalFileName: string, sku: string): [number, number, string] {
-  const base = stripExtension(originalFileName)
+  const base = normalizeCode(stripExtension(originalFileName))
   if (base === sku) return [0, 0, '']
   const suffix = base.slice(sku.length + 1)
   const numericMatch = suffix.match(/^(\d+)/)
@@ -83,15 +78,13 @@ function compareRankKeys(a: [number, number, string], b: [number, number, string
   return a[2].localeCompare(b[2])
 }
 
-// Immich filenames never contain spaces, but a Rithum field can (e.g. a
-// real product's "Vendor SKU" came back as "JSP035A2625 WH YP") — strip them
-// so that field still lines up with the actual filename ("JSP035A2625WHYP").
-function normalizeCode(code: string): string {
-  return code.replace(/\s+/g, '')
+
+function searchAnchor(sku: string): string {
+  const match = sku.match(/^(.*\d)[A-Za-z]*$/)
+  return match ? match[1] : sku
 }
 
-/** Looks up every product photo for a SKU in Immich, ordered primary-first,
- * caching the result briefly since the same SKU is searched repeatedly. */
+
 export async function findProductImages(rawSku: string): Promise<ProductImageResult> {
   const sku = normalizeCode(rawSku)
   const cached = cache.get(sku)
@@ -102,7 +95,7 @@ export async function findProductImages(rawSku: string): Promise<ProductImageRes
   const res = await immichFetch('/search/metadata', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ originalFileName: sku, withDeleted: false }),
+    body: JSON.stringify({ originalFileName: searchAnchor(sku), withDeleted: false }),
   })
 
   if (!res.ok) {
@@ -132,12 +125,6 @@ export async function findProductImages(rawSku: string): Promise<ProductImageRes
   return result
 }
 
-/** Rithum's own fields can disagree on a product's exact style code — a real
- * case had "Image reference style #" silently missing a variant segment
- * ("JSP035A2625YP") that "Vendor SKU" ("JSP035A2625 WH YP") and the actual
- * Immich filenames both carried. Try each candidate in turn instead of
- * trusting a single field to be complete, and use the first one Immich
- * actually has photos for. */
 export async function findProductImagesForCandidates(
   candidates: string[]
 ): Promise<ProductImageResult> {
@@ -152,14 +139,10 @@ export async function findProductImagesForCandidates(
   return { found: false }
 }
 
-/** Thin authenticated fetch for streaming an asset's bytes back through our
- * own proxy route, so the Immich API key never reaches the browser. */
 export async function fetchImmichAsset(
   assetId: string,
   size: 'thumbnail' | 'preview' | 'original'
 ): Promise<Response> {
   if (size === 'original') return immichFetch(`/assets/${assetId}/original`)
-  // 'preview' (1440px JPEG) is served off the same thumbnail endpoint as
-  // 'thumbnail' (250px WebP), just with a different Immich size param.
   return immichFetch(`/assets/${assetId}/thumbnail?size=${size}`)
 }

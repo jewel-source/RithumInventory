@@ -19,7 +19,6 @@ export async function GET(
     return new NextResponse(res.body, {
       headers: {
         'Content-Type': res.headers.get('Content-Type') ?? 'image/jpeg',
-        // Bytes for a given assetId + size never change, so cache generously.
         'Cache-Control': 'private, max-age=86400, immutable',
       },
     })

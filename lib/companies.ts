@@ -1,5 +1,3 @@
-// Maps a short company key to the exact Rithum product Label name used to
-// tag that company's drop-ship items. Confirmed against live Sandbox data.
 export const COMPANY_LABELS = {
   kohls: "Kohl's Drop Ship",
   macys: "Macy's Drop Ship",

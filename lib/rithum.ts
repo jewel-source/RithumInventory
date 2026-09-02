@@ -43,7 +43,6 @@ async function fetchNewAccessToken(): Promise<CachedToken> {
 
   return {
     accessToken: data.access_token,
-    // Refresh a bit early so we don't hand out a token that expires mid-request.
     expiresAt: Date.now() + (data.expires_in - 60) * 1000,
   }
 }
@@ -56,8 +55,6 @@ export async function getAccessToken(): Promise<string> {
   return cachedToken.accessToken
 }
 
-/** Thin authenticated fetch against the Rithum REST API. `path` may be a path
- * starting with `/v1/...` or a full URL (e.g. an `@odata.nextLink`). */
 export async function rithumFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const accessToken = await getAccessToken()
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
@@ -72,8 +69,6 @@ export async function rithumFetch(path: string, init: RequestInit = {}): Promise
   })
 }
 
-/** Same as rithumFetch, but parses the JSON body and throws with the Rithum
- * OData error message on a non-2xx response. */
 export async function rithumFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await rithumFetch(path, init)
 
@@ -84,7 +79,6 @@ export async function rithumFetchJson<T>(path: string, init?: RequestInit): Prom
       const parsed = JSON.parse(body)
       message = parsed?.error?.message ?? body
     } catch {
-      // Body wasn't JSON — use it as-is.
     }
     throw new Error(`Rithum API error (${res.status}): ${message}`)
   }
@@ -92,11 +86,6 @@ export async function rithumFetchJson<T>(path: string, init?: RequestInit): Prom
   return res.json() as Promise<T>
 }
 
-/** Only set if the integration has access to more than one profile. There's
- * no single consistent query param for this across the Rithum API — OData
- * entity collections (e.g. /v1/Products) scope by ProfileID inside $filter,
- * while some custom controller endpoints (e.g. /v1/ProductExport) take a
- * dedicated `profileId` query param. Callers fold this in per-endpoint. */
 export function getProfileId(): string | undefined {
   return process.env.RITHUM_PROFILE_ID || undefined
 }

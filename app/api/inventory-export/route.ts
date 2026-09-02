@@ -79,8 +79,6 @@ function toRow(product: RithumProduct, company: CompanyKey): Record<string, stri
     UPC: product.UPC ?? '',
   }
 
-  // For Macy's, the SKU field itself is the vendor's own style number, so a
-  // separate Vendor SKU column would just duplicate it. Kohl's needs both.
   if (company === 'kohls') {
     base['Vendor SKU'] = vendorSku
   }
@@ -97,11 +95,6 @@ function toRow(product: RithumProduct, company: CompanyKey): Record<string, stri
   return base
 }
 
-/** Runs the inventory export for a single company synchronously — paginates
- * Products filtered by that company's Label rather than using the
- * ProductExport job endpoint, whose $filter query param is not honored (it
- * always returns the full, unfiltered catalog regardless of the filter
- * passed to it). */
 export async function GET(req: NextRequest) {
   const company = req.nextUrl.searchParams.get('company')
   if (!company || !isCompanyKey(company)) {
