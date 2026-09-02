@@ -83,9 +83,17 @@ function compareRankKeys(a: [number, number, string], b: [number, number, string
   return a[2].localeCompare(b[2])
 }
 
+// Immich filenames never contain spaces, but a Rithum field can (e.g. a
+// real product's "Vendor SKU" came back as "JSP035A2625 WH YP") — strip them
+// so that field still lines up with the actual filename ("JSP035A2625WHYP").
+function normalizeCode(code: string): string {
+  return code.replace(/\s+/g, '')
+}
+
 /** Looks up every product photo for a SKU in Immich, ordered primary-first,
  * caching the result briefly since the same SKU is searched repeatedly. */
-export async function findProductImages(sku: string): Promise<ProductImageResult> {
+export async function findProductImages(rawSku: string): Promise<ProductImageResult> {
+  const sku = normalizeCode(rawSku)
   const cached = cache.get(sku)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.result
@@ -122,6 +130,26 @@ export async function findProductImages(sku: string): Promise<ProductImageResult
 
   cache.set(sku, { result, expiresAt: Date.now() + CACHE_TTL_MS })
   return result
+}
+
+/** Rithum's own fields can disagree on a product's exact style code — a real
+ * case had "Image reference style #" silently missing a variant segment
+ * ("JSP035A2625YP") that "Vendor SKU" ("JSP035A2625 WH YP") and the actual
+ * Immich filenames both carried. Try each candidate in turn instead of
+ * trusting a single field to be complete, and use the first one Immich
+ * actually has photos for. */
+export async function findProductImagesForCandidates(
+  candidates: string[]
+): Promise<ProductImageResult> {
+  const tried = new Set<string>()
+  for (const candidate of candidates) {
+    const normalized = normalizeCode(candidate)
+    if (!normalized || tried.has(normalized)) continue
+    tried.add(normalized)
+    const result = await findProductImages(normalized)
+    if (result.found) return result
+  }
+  return { found: false }
 }
 
 /** Thin authenticated fetch for streaming an asset's bytes back through our

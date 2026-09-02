@@ -33,13 +33,16 @@ interface RithumProduct {
 
 // The Sku field is Rithum's own product identifier and isn't always the
 // vendor's style code — for some catalogs (e.g. Kohl's) it's a separate
-// numeric ID. The style code that matches Immich filenames lives in these
-// attributes instead, which are always equal to each other when both are set.
-function getImageStyleCode(product: RithumProduct): string | null {
+// numeric ID. The style code that matches Immich filenames usually lives in
+// these attributes instead — usually, because they can disagree with each
+// other (a real product had "Image reference style #" silently missing a
+// variant segment that "Vendor SKU" carried) — so return every candidate in
+// priority order and let the server try each one against Immich.
+function getImageStyleCodes(product: RithumProduct): string[] {
   const attrs = product.Attributes ?? []
   const styleAttr = attrs.find(a => a.Name === 'Image reference style #')?.Value
   const vendorAttr = attrs.find(a => a.Name === 'Vendor SKU')?.Value
-  return styleAttr || vendorAttr || product.Sku || null
+  return [styleAttr, vendorAttr, product.Sku].filter((v): v is string => !!v)
 }
 
 const SOLD_PERIODS: { key: keyof RithumProduct; label: string }[] = [
@@ -344,7 +347,8 @@ function ProductCard({ product }: { product: RithumProduct }) {
     (img): img is RithumImage & { Url: string } => isValidImageUrl(img.Url)
   )
   const hasRithumImages = rithumImages.length > 0
-  const imageStyleCode = getImageStyleCode(product)
+  const imageStyleCodes = getImageStyleCodes(product)
+  const imageStyleCodesKey = imageStyleCodes.join('|')
 
   // A Rithum image entry can carry a syntactically valid URL that's simply
   // dead (a real product hit this: a 404'ing wasabisys.com link) — a
@@ -369,11 +373,11 @@ function ProductCard({ product }: { product: RithumProduct }) {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasRithumImages, imageStyleCode])
+  }, [hasRithumImages, imageStyleCodesKey])
 
   const allRithumImagesBroken =
     hasRithumImages && rithumImages.every(img => brokenRithumUrls.has(img.Url))
-  const shouldLookupImmich = (!hasRithumImages || allRithumImagesBroken) && !!imageStyleCode
+  const shouldLookupImmich = (!hasRithumImages || allRithumImagesBroken) && imageStyleCodes.length > 0
 
   // null = not yet resolved (or no lookup needed yet) — kept separate from
   // shouldLookupImmich itself so a lookup that only becomes eligible after
@@ -395,7 +399,8 @@ function ProductCard({ product }: { product: RithumProduct }) {
 
     let cancelled = false
 
-    fetch(`/api/product-image?sku=${encodeURIComponent(imageStyleCode!)}`)
+    const qs = imageStyleCodes.map(code => `sku=${encodeURIComponent(code)}`).join('&')
+    fetch(`/api/product-image?${qs}`)
       .then(res => res.json())
       .then((data: { found: boolean; images?: { assetId: string; thumbnailUrl: string }[] }) => {
         if (cancelled) return
@@ -404,7 +409,7 @@ function ProductCard({ product }: { product: RithumProduct }) {
             data.images.map(img => ({
               thumbUrl: img.thumbnailUrl,
               fullUrl: `${img.thumbnailUrl}?size=preview`,
-              alt: imageStyleCode!,
+              alt: imageStyleCodes[0],
             }))
           )
           setImmichFound(true)
@@ -419,7 +424,8 @@ function ProductCard({ product }: { product: RithumProduct }) {
     return () => {
       cancelled = true
     }
-  }, [shouldLookupImmich, imageStyleCode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldLookupImmich, imageStyleCodesKey])
 
   const images: GalleryImage[] =
     allRithumImagesBroken && immichState === 'found'
