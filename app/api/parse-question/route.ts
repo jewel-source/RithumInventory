@@ -47,6 +47,7 @@ Reply with ONLY a single JSON object, no markdown fences, no explanation, matchi
 }
 Do not include "style", "ctw", or "rhodiumYp" fields — all three are extracted separately, not by you.
 "metalType" is the base metal (e.g. "STERLING SILVER", "GOLD") — plating (rhodium/yellow/gold-plated) is never a metalType value.
+"gemType" is an actual gemstone material only (e.g. "DIAMOND", "SAPPHIRE", "CUBIC ZIRCONIA", "MOISSANITE", "PEARL") — a shape/motif word like "flower", "heart", "halo", "cluster", "vintage" is never a gemType.
 
 Rules:
 - "intent" is "topSelling" only when the question asks which item/style sells best or most (e.g. "best selling", "top seller", "most sold"). Otherwise "total".

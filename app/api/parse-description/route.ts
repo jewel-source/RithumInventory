@@ -10,26 +10,30 @@ import {
   categoryFromStylePrefix,
   toNullableString,
   pruneUnmentionedFields,
+  sanitizeKeywords,
   callQwenExtraction,
   DEFAULT_QWEN_MODEL,
 } from '@/lib/jewelryAttributes'
 
-type ParsedAttributeFilters = Record<FilterField, string | null>
+type ParsedAttributeFilters = Record<FilterField, string | null> & { keywords: string[] }
 
 const SYSTEM_PROMPT = `You extract jewelry attributes from a product description.
 Reply with ONLY a single JSON object, no markdown fences, no explanation, matching exactly this shape:
 {
   "category": string|null, "color": string|null, "colorName": string|null,
   "gemType": string|null, "metalType": string|null, "patternName": string|null,
-  "ringSize": string|null, "sizeName": string|null
+  "ringSize": string|null, "sizeName": string|null,
+  "keywords": string[]
 }
 Do not include "style", "ctw", or "rhodiumYp" fields — all three are extracted separately, not by you.
 "metalType" is the base metal (e.g. "STERLING SILVER", "GOLD") — plating (rhodium/yellow/gold-plated) is never a metalType value.
+"gemType" is an actual gemstone material only (e.g. "DIAMOND", "SAPPHIRE", "CUBIC ZIRCONIA", "MOISSANITE", "PEARL") — a shape/motif word like "flower", "heart", "halo", "cluster", "vintage" is never a gemType, that belongs in "patternName" or "keywords" instead.
 
 Rules:
 - "category" is a product type like RING, EARRING, NECKLACE, BRACELET, PENDANT. null if not mentioned.
 - "color", "colorName", "gemType", "metalType", "patternName", "sizeName" are jewelry attributes — fill in only if clearly mentioned, else null.
-- "ringSize" is the numeric ring size (e.g. "6"). null if not mentioned.`
+- "ringSize" is the numeric ring size (e.g. "6"). null if not mentioned.
+- "keywords" is up to 4 words copied verbatim from the description that would help find this item by matching a product title (e.g. distinctive style/shape/design words like "flower", "vintage", "halo", "cluster"). Do not include words already covered by another field above (category nouns like "ring", carat/size numbers, plating words like "plated"/"gold"/"yellow"/"rhodium"). Every word must be an exact word from the description.`
 
 function validate(parsed: unknown, description: string): ParsedAttributeFilters {
   if (typeof parsed !== 'object' || parsed === null) {
@@ -39,7 +43,9 @@ function validate(parsed: unknown, description: string): ParsedAttributeFilters 
 
   const filters = Object.fromEntries(
     FILTER_FIELDS.map(field => [field, toNullableString(obj[field])])
-  ) as ParsedAttributeFilters
+  ) as Record<FilterField, string | null> as ParsedAttributeFilters
+
+  filters.keywords = sanitizeKeywords(obj.keywords, description)
 
   filters.rhodiumYp = extractRhodiumYp(description)
   pruneUnmentionedFields(filters, description)

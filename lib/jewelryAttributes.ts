@@ -46,19 +46,21 @@ export function extractCtw(text: string): string | null {
 }
 
 // The RHODIUM/YP attribute only ever holds one of two values in this
-// catalog. Rather than trust a small model to pick between them (it
-// confused "gold plated" for a metalType value entirely, per a real user
-// report), derive it deterministically from the same synonyms the system
-// prompt used to describe to the model: "gold plated" and "yellow plated"
-// both mean YP, "rhodium (plated)" means RHODIUM PLATED. A bare "plated"
+// catalog, confirmed against real product data: "YELLOW PLATED" for the
+// gold-look variant, "WHITE RHODIUM" for the plain/silver-look one (not
+// "RHODIUM PLATED" — a prior, unverified guess that would have silently
+// zero-matched every rhodium search). Rather than trust a small model to
+// pick between them (it confused "gold plated" for a metalType value
+// entirely, per a real user report), derive it deterministically from
+// synonyms the system prompt also describes to the model. A bare "plated"
 // with no color qualifier is genuinely ambiguous, so it stays null rather
 // than guessing.
 const YELLOW_PLATED_PATTERN = /\b(?:yellow|gold)[- ]plated\b|\byp\b/i
-const RHODIUM_PLATED_PATTERN = /\brhodium(?:[- ]plated)?\b/i
+const WHITE_RHODIUM_PATTERN = /\b(?:white[- ]rhodium|rhodium(?:[- ]plated)?)\b/i
 
 export function extractRhodiumYp(text: string): string | null {
   if (YELLOW_PLATED_PATTERN.test(text)) return 'YELLOW PLATED'
-  if (RHODIUM_PLATED_PATTERN.test(text)) return 'RHODIUM PLATED'
+  if (WHITE_RHODIUM_PATTERN.test(text)) return 'WHITE RHODIUM'
   return null
 }
 
@@ -145,6 +147,14 @@ export const RESERVED_ATTRIBUTE_WORDS = new Set([
 // word another field already owns.
 export const MODEL_SOURCED_FIELDS = ['color', 'colorName', 'gemType', 'metalType', 'patternName'] as const
 
+// Unlike color/metal/pattern (open-ended catalog vocabularies), gem types
+// are a genuinely bounded set — so instead of only checking the value is
+// "mentioned in text" (which any plausible-sounding word trivially passes,
+// e.g. a real user report: gemType returned as "FLOWER", a shape/pattern
+// word, not a gemstone), require it to actually look like one.
+const GEM_TYPE_PATTERN =
+  /\b(diamond|ruby|rubies|sapphire|emerald|moissanite|cubic zirconia|\bcz\b|pearl|garnet|topaz|amethyst|aquamarine|opal|peridot|citrine|morganite|tanzanite|onyx|turquoise|quartz|jade|spinel|zircon|alexandrite)\b/i
+
 // The rest of FILTER_FIELDS: extracted deterministically (or, for rhodiumYp,
 // gated by an explicit keyword pattern) — high enough confidence to use as a
 // hard requirement rather than just one option among many. Search callers
@@ -165,10 +175,61 @@ export function pruneUnmentionedFields(
     // "plated" describes the RHODIUM/YP attribute (handled deterministically
     // by extractRhodiumYp), never a legitimate color/metal/gem/pattern value
     // — the model has confused the two before (e.g. metalType: "GOLD PLATED").
-    if (RESERVED_ATTRIBUTE_WORDS.has(lower) || lower.includes('plated') || !mentionedInText(value, text)) {
+    if (
+      RESERVED_ATTRIBUTE_WORDS.has(lower) ||
+      lower.includes('plated') ||
+      !mentionedInText(value, text) ||
+      (field === 'gemType' && !GEM_TYPE_PATTERN.test(value))
+    ) {
       filters[field] = null
     }
   }
+}
+
+// Generic filler words to never treat as a Title-matching keyword, whether
+// they come from the mechanical description split or from the model.
+export const STOPWORDS = new Set([
+  'the', 'a', 'an', 'in', 'on', 'of', 'for', 'with', 'and', 'or', 'to', 'is', 'are', 'this',
+  'that', 'it', 'its', 'from', 'by', 'at', 'as', 'be', 'been', 'was', 'were', 'has', 'have',
+  'had', 'will', 'would', 'can', 'could', 'our', 'your', 'their', 'his', 'her', 'new', 'item',
+  'product', 'style', 'sku',
+])
+
+// Kept small: Rithum's OData service rejects queries whose parsed node count
+// exceeds 100, and each `contains(Title, ...)` clause plus its `or` adds up
+// fast once combined with the attribute-filter branch and the company clause.
+export const MAX_TITLE_KEYWORDS = 4
+
+// Qwen is asked (in parse-description) to pick the description's own words
+// that would best match a product Title, as a smarter alternative to a blind
+// stopword split — but like any model output it can invent a word that isn't
+// actually in the text. Ground every keyword the same way MODEL_SOURCED_FIELDS
+// are grounded: it must literally appear in the source text, and it can't be
+// a stopword, a reserved word already owned by a dedicated filter (ctw,
+// category nouns, size), or a plating term (owned by rhodiumYp).
+export function sanitizeKeywords(raw: unknown, text: string): string[] {
+  if (!Array.isArray(raw)) return []
+  const lowerText = text.toLowerCase()
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const word = item.toLowerCase().trim()
+    if (
+      word.length < 3 ||
+      STOPWORDS.has(word) ||
+      RESERVED_ATTRIBUTE_WORDS.has(word) ||
+      word.includes('plated') ||
+      seen.has(word) ||
+      !lowerText.includes(word)
+    ) {
+      continue
+    }
+    seen.add(word)
+    result.push(word)
+    if (result.length >= MAX_TITLE_KEYWORDS) break
+  }
+  return result
 }
 
 export function toNullableString(value: unknown): string | null {

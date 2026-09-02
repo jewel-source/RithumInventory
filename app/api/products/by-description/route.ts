@@ -4,8 +4,10 @@ import { COMPANY_LABELS, isCompanyKey } from '@/lib/companies'
 import {
   ATTRIBUTE_NAME_BY_PARAM,
   HARD_FIELDS,
+  MAX_TITLE_KEYWORDS,
   MODEL_SOURCED_FIELDS,
   RESERVED_ATTRIBUTE_WORDS,
+  STOPWORDS,
   attributeClause,
   escapeODataString,
 } from '@/lib/jewelryAttributes'
@@ -59,27 +61,17 @@ const SELECT_FIELDS = [
 ].join(',')
 
 const MAX_RESULTS = 50
-// Kept small: Rithum's OData service rejects queries whose parsed node count
-// exceeds 100, and each `contains(Title, ...)` clause plus its `or` adds up
-// fast once combined with the attribute-filter branch and the company clause.
-const MAX_KEYWORDS = 4
 
-const STOPWORDS = new Set([
-  'the', 'a', 'an', 'in', 'on', 'of', 'for', 'with', 'and', 'or', 'to', 'is', 'are', 'this',
-  'that', 'it', 'its', 'from', 'by', 'at', 'as', 'be', 'been', 'was', 'were', 'has', 'have',
-  'had', 'will', 'would', 'can', 'could', 'our', 'your', 'their', 'his', 'her', 'new', 'item',
-  'product', 'style', 'sku',
-])
-
-// Words worth matching against Title directly, as a fallback alongside the
-// AI-extracted attribute filters — a vague or partially-wrong description can
-// still surface candidates this way. Excludes words already owned by a
-// precise attribute filter — category nouns/CTW always (RESERVED_ATTRIBUTE_
-// WORDS), plus, dynamically, any token that's part of an active filter's
-// *value* this search already has (e.g. once rhodiumYp = "YELLOW PLATED" is
-// a hard requirement, also letting "plated" compete as a loose Title keyword
-// would make virtually every plated item satisfy the soft group on that
-// word alone, silently erasing the rest of the description).
+// Mechanical fallback for when parse-description didn't return any usable
+// keywords (e.g. Qwen omitted the field, or every candidate got grounded
+// out) — a vague or partially-wrong description can still surface candidates
+// this way. Excludes words already owned by a precise attribute filter —
+// category nouns/CTW always (RESERVED_ATTRIBUTE_WORDS), plus, dynamically,
+// any token that's part of an active filter's *value* this search already
+// has (e.g. once rhodiumYp = "YELLOW PLATED" is a hard requirement, also
+// letting "plated" compete as a loose Title keyword would make virtually
+// every plated item satisfy the soft group on that word alone, silently
+// erasing the rest of the description).
 function significantWords(text: string, exclude: Set<string>): string[] {
   const words = text
     .toLowerCase()
@@ -88,7 +80,7 @@ function significantWords(text: string, exclude: Set<string>): string[] {
     .filter(
       w => w.length >= 3 && !STOPWORDS.has(w) && !RESERVED_ATTRIBUTE_WORDS.has(w) && !exclude.has(w)
     )
-  return [...new Set(words)].slice(0, MAX_KEYWORDS)
+  return [...new Set(words)].slice(0, MAX_TITLE_KEYWORDS)
 }
 
 export async function GET(req: NextRequest) {
@@ -125,14 +117,31 @@ export async function GET(req: NextRequest) {
     attributeClause(ATTRIBUTE_NAME_BY_PARAM[field], softValues[i])
   )
 
-  const filterValueTokens = new Set(
-    [...hardValues, ...softValues].flatMap(v => v.toLowerCase().split(/\s+/))
-  )
+  // Only hard-filter values are excluded from the Title-keyword branch: a
+  // hard field is AND'd in and reliably present as a real attribute, so
+  // reusing its word as a keyword too would just make the soft OR-group
+  // trivially true for every hard-filtered item. Soft (model-sourced)
+  // values don't get this treatment — many catalog lines simply don't carry
+  // a GEM_TYPE/PATTERN_NAME/etc. attribute at all, so a soft attribute
+  // clause can go unmatched for every real product; excluding its word from
+  // the keyword fallback too would leave that signal with nowhere to match.
+  const filterValueTokens = new Set(hardValues.flatMap(v => v.toLowerCase().split(/\s+/)))
+
+  // parse-description asks Qwen to pick the description's own salient words
+  // for Title matching — smarter than a blind stopword split, and already
+  // grounded against the source text there. Fall back to the mechanical
+  // split only if that came back empty (field omitted, or every candidate
+  // got grounded out).
+  const qwenKeywords = (params.get('keywords') ?? '')
+    .split(',')
+    .map(w => w.trim().toLowerCase())
+    .filter(w => w.length > 0 && !filterValueTokens.has(w))
+    .slice(0, MAX_TITLE_KEYWORDS)
 
   // The Rithum OData service rejects tolower(), so this relies on the
   // backing store's default (case-insensitive) string collation rather than
   // folding case in the query itself.
-  const words = significantWords(description, filterValueTokens)
+  const words = qwenKeywords.length > 0 ? qwenKeywords : significantWords(description, filterValueTokens)
   const titleClauses = words.map(w => `contains(Title, '${escapeODataString(w)}')`)
 
   const softClauses = [...softAttributeClauses, ...titleClauses]
@@ -167,13 +176,48 @@ export async function GET(req: NextRequest) {
       `/v1/Products?$filter=${filter}&$expand=Images,Attributes&$select=${SELECT_FIELDS}&$top=${MAX_RESULTS}`
     )
 
-    const products = data.value
+    let products = data.value
 
     if (products.length === 0) {
       return NextResponse.json(
         { error: 'No matching products found for that description' },
         { status: 404 }
       )
+    }
+
+    // When the user didn't specify a finish, also pull in each match's
+    // plating sibling (style code with/without a trailing "YP") even if its
+    // own catalog Title reads differently — same style family, so both
+    // finishes should surface together rather than only whichever one
+    // happens to share Title wording with the search.
+    if (!params.get('rhodiumYp')?.trim()) {
+      const styleAttrName = ATTRIBUTE_NAME_BY_PARAM.style
+      const foundStyles = new Set(
+        products
+          .map(p => p.Attributes?.find(a => a.Name === styleAttrName)?.Value)
+          .filter((v): v is string => !!v)
+      )
+      const companionStyles = [...foundStyles]
+        .map(style => (/YP$/i.test(style) ? style.slice(0, -2) : `${style}YP`))
+        .filter(companion => !foundStyles.has(companion))
+
+      if (companionStyles.length > 0) {
+        const companionClauses = companionStyles.map(s => attributeClause(styleAttrName, s))
+        let companionFilterExpr =
+          `(${companionClauses.join(' or ')}) and Labels/any(l: l/Name eq '${escapeODataString(companyLabel)}')`
+        if (profileId) {
+          companionFilterExpr += ` and ProfileID eq ${Number(profileId)}`
+        }
+        try {
+          const companionData = await rithumFetchJson<ProductsResponse>(
+            `/v1/Products?$filter=${encodeURIComponent(companionFilterExpr)}&$expand=Images,Attributes&$select=${SELECT_FIELDS}&$top=${MAX_RESULTS}`
+          )
+          const existingIds = new Set(products.map(p => p.ID))
+          products = [...products, ...companionData.value.filter(p => !existingIds.has(p.ID))]
+        } catch {
+          // Best-effort: if the companion lookup fails, still return the original matches.
+        }
+      }
     }
 
     return NextResponse.json({ products })

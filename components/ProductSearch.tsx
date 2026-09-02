@@ -100,7 +100,7 @@ type ParsedFilters = {
   allTimeCaveat?: true
 } & Record<FilterField, string | null>
 
-type ParsedDescriptionFilters = Record<FilterField, string | null>
+type ParsedDescriptionFilters = Record<FilterField, string | null> & { keywords: string[] }
 
 interface AttributeSearchProduct {
   Sku: string | null
@@ -505,6 +505,7 @@ export default function ProductSearch() {
         const value = filters[field]
         if (value) searchParams.set(field, value)
       }
+      if (filters.keywords?.length) searchParams.set('keywords', filters.keywords.join(','))
 
       const searchRes = await fetch(`/api/products/by-description?${searchParams.toString()}`)
       const searchData = await searchRes.json()
@@ -711,6 +712,11 @@ export default function ProductSearch() {
                 </>
               ) : (
                 'No specific attributes recognized — matching by keyword only'
+              )}
+              {descParsedFilters.keywords?.length > 0 && (
+                <span>
+                  , matching title on <strong>{descParsedFilters.keywords.join(', ')}</strong>
+                </span>
               )}
             </p>
           )}
